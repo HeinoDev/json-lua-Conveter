@@ -168,16 +168,15 @@
             <span id="inLabel"></span>
             <button id="copyIn"></button>
           </div>
-          <textarea id="input" spellcheck="false">
-{
-  "name": "phone",
-  "label": "Phone",
-  "weight": 100,
-  "stackable": true,
-  "close": false,
-  "tags": ["misc", "electronics"]
-}</textarea
-          >
+          <textarea id="input" spellcheck="false">{
+  name = "phone",
+  label = "Phone",
+  weight = 100,
+  color = 0xFF5733,
+  flags = 0b1010,
+  stackable = true,
+  tags = { "misc", "electronics" }
+}</textarea>
         </div>
       </div>
       <div class="col">
@@ -376,12 +375,20 @@
               continue;
             }
             if (c === "-" && str.charAt(pos + 1) === "-") {
-              if (str.charAt(pos + 2) === "[" && str.charAt(pos + 3) === "[") {
-                var end = str.indexOf("]]", pos + 4);
-                pos = end === -1 ? len : end + 2;
+              pos += 2;
+              if (str.charAt(pos) === "[" && str.charAt(pos + 1) === "[") {
+                pos += 2;
+                var blockEnd = str.indexOf("]]", pos);
+                if (blockEnd === -1) {
+                  // Unclosed block comment, skip to end
+                  pos = len;
+                } else {
+                  pos = blockEnd + 2;
+                }
               } else {
-                var nl = str.indexOf("\n", pos);
-                pos = nl === -1 ? len : nl;
+                // Line comment, skip until newline
+                var nlPos = str.indexOf("\n", pos);
+                pos = nlPos === -1 ? len : nlPos;
               }
               continue;
             }
@@ -416,9 +423,42 @@
         }
 
         function parseNumber() {
-          var m = /^-?\d+(\.\d+)?([eE][+-]?\d+)?/.exec(str.slice(pos));
+          var startPos = pos;
+          var isNegative = false;
+
+          if (str.charAt(pos) === "-") {
+            isNegative = true;
+            pos++;
+          }
+
+          // Try hex (0x/0X)
+          if (str.charAt(pos) === "0" && /[xX]/.test(str.charAt(pos + 1))) {
+            var m = /^[0-9a-fA-F]+/.exec(str.slice(pos + 2));
+            if (m && m[0].length > 0) {
+              pos += 2 + m[0].length;
+              return isNegative ? -parseInt(m[0], 16) : parseInt(m[0], 16);
+            }
+          }
+
+          // Try binary (0b/0B)
+          if (str.charAt(pos) === "0" && /[bB]/.test(str.charAt(pos + 1))) {
+            var m = /^[01]+/.exec(str.slice(pos + 2));
+            if (m && m[0].length > 0) {
+              pos += 2 + m[0].length;
+              return isNegative ? -parseInt(m[0], 2) : parseInt(m[0], 2);
+            }
+          }
+
+          // Decimal numbers
+          var m = /^\d+(\.\d+)?([eE][+-]?\d+)?/.exec(str.slice(pos));
+          if (!m || m[0].length === 0) {
+            var err = new Error("Invalid number");
+            err.pos = startPos;
+            throw err;
+          }
           pos += m[0].length;
-          return Number(m[0]);
+          var num = Number(m[0]);
+          return isNegative ? -num : num;
         }
 
         function parseIdent() {
@@ -625,8 +665,16 @@
             errEl.innerText = e.message;
           } else {
             var lineCol = getLineCol(raw, e.pos || 0);
-            var errorType = dir === "jl" ? LOCALES[lang].jsonError : LOCALES[lang].luaError;
-            errEl.innerText = errorType + " (Line " + lineCol.line + ", Col " + lineCol.col + "): " + e.message;
+            var errorType =
+              dir === "jl" ? LOCALES[lang].jsonError : LOCALES[lang].luaError;
+            errEl.innerText =
+              errorType +
+              " (Line " +
+              lineCol.line +
+              ", Col " +
+              lineCol.col +
+              "): " +
+              e.message;
           }
         }
       }
@@ -636,22 +684,20 @@
         convertTimeout = setTimeout(convert, 500);
       }
 
-      async function copyBox(box) {
-        try {
-          var text = box.value;
-          if (!text) return;
+      function copyBox(box) {
+        var text = box.value;
+        if (!text) return;
 
-          await navigator.clipboard.writeText(text);
-
+        navigator.clipboard.writeText(text).then(function() {
           var btn = box === input ? copyIn : copyOut;
           var origText = btn.innerText;
           btn.innerText = LOCALES[lang].copied;
-          setTimeout(function() {
+          setTimeout(function () {
             btn.innerText = origText;
           }, 2000);
-        } catch (e) {
+        }).catch(function(e) {
           alert("Failed to copy: " + e.message);
-        }
+        });
       }
 
       function saveState() {
@@ -707,7 +753,7 @@
         saveState();
       };
 
-      document.onkeydown = function(e) {
+      document.onkeydown = function (e) {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
           convert();
