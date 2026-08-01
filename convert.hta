@@ -1,0 +1,547 @@
+<html>
+  <head>
+    <title>json lua tool</title>
+    <meta http-equiv="x-ua-compatible" content="IE=11" />
+    <HTA:APPLICATION
+      APPLICATIONNAME="json-lua-tool"
+      BORDER="thick"
+      CAPTION="yes"
+      MAXIMIZEBUTTON="yes"
+      MINIMIZEBUTTON="yes"
+      SHOWINTASKBAR="yes"
+      SINGLEINSTANCE="yes"
+      SYSMENU="yes"
+      WINDOWSTATE="normal"
+      SCROLL="no"
+    />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0d0f13;
+        color: #ccd0d8;
+        font-family:
+          Segoe UI,
+          Tahoma,
+          sans-serif;
+      }
+      body {
+        padding: 20px;
+        overflow: hidden;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .top h1 {
+        font-size: 15px;
+        font-weight: 600;
+        color: #8b8f98;
+        margin: 0;
+      }
+      .top h1 span {
+        color: #6366f1;
+      }
+      .right {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+      }
+      .tabs button {
+        background: #171a21;
+        border: 1px solid #262b35;
+        color: #8b8f98;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .tabs button.active {
+        background: #3b82f6;
+        border-color: #3b82f6;
+        color: #ffffff;
+        font-weight: 600;
+      }
+      select {
+        background: #171a21;
+        border: 1px solid #262b35;
+        color: #ccd0d8;
+        padding: 5px 8px;
+        font-size: 12px;
+      }
+      .grid {
+        display: table;
+        width: 100%;
+        table-layout: fixed;
+      }
+      .col {
+        display: table-cell;
+        width: 50%;
+        padding: 0 6px;
+      }
+      .col:first-child {
+        padding-left: 0;
+      }
+      .col:last-child {
+        padding-right: 0;
+      }
+      .box {
+        background: #12141a;
+        border: 1px solid #20242e;
+      }
+      .box .head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 10px;
+        border-bottom: 1px solid #20242e;
+        font-size: 11px;
+        color: #5c626c;
+      }
+      .box .head button {
+        background: none;
+        border: none;
+        color: #5c626c;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      textarea {
+        width: 100%;
+        height: 330px;
+        background: transparent;
+        border: none;
+        color: #ccd0d8;
+        font-family: Consolas, monospace;
+        font-size: 12px;
+        padding: 10px;
+        resize: none;
+      }
+      .bottom {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 12px;
+      }
+      #run {
+        background: #3b82f6;
+        border: none;
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 12px;
+        padding: 8px 18px;
+        cursor: pointer;
+      }
+      #err {
+        font-size: 12px;
+        color: #e05252;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <h1>json <span>&lt;-&gt;</span> lua table</h1>
+      <div class="right">
+        <div class="tabs">
+          <button id="btnJL" class="active"></button>
+          <button id="btnLJ"></button>
+        </div>
+        <select id="lang">
+          <option value="en">english</option>
+          <option value="da">dansk</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="col">
+        <div class="box">
+          <div class="head">
+            <span id="inLabel"></span>
+            <button id="copyIn"></button>
+          </div>
+          <textarea id="input" spellcheck="false">
+{
+  "name": "phone",
+  "label": "Phone",
+  "weight": 100,
+  "stackable": true,
+  "close": false,
+  "tags": ["misc", "electronics"]
+}</textarea
+          >
+        </div>
+      </div>
+      <div class="col">
+        <div class="box">
+          <div class="head">
+            <span id="outLabel"></span>
+            <button id="copyOut"></button>
+          </div>
+          <textarea id="output" spellcheck="false" readonly></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom">
+      <button id="run"></button>
+      <span id="err"></span>
+    </div>
+
+    <script language="javascript">
+      window.resizeTo(1020, 620);
+      window.moveTo((screen.width - 1020) / 2, (screen.height - 620) / 2);
+
+      var LOCALES = {
+        en: {
+          tabJL: "json -> lua",
+          tabLJ: "lua -> json",
+          inJson: "json in",
+          inLua: "lua in",
+          outJson: "json out",
+          outLua: "lua out",
+          copy: "copy",
+          run: "convert",
+          error:
+            "cant read that - check for a missing comma or bracket somewhere",
+        },
+        da: {
+          tabJL: "json -> lua",
+          tabLJ: "lua -> json",
+          inJson: "json ind",
+          inLua: "lua ind",
+          outJson: "json ud",
+          outLua: "lua ud",
+          copy: "kopier",
+          run: "konverter",
+          error:
+            "kan ikke læse det - tjek for et manglende komma eller en klamme",
+        },
+      };
+
+      var dir = "jl";
+      var lang = "en";
+
+      var input = document.getElementById("input");
+      var output = document.getElementById("output");
+      var errEl = document.getElementById("err");
+      var btnJL = document.getElementById("btnJL");
+      var btnLJ = document.getElementById("btnLJ");
+      var inLabel = document.getElementById("inLabel");
+      var outLabel = document.getElementById("outLabel");
+      var copyIn = document.getElementById("copyIn");
+      var copyOut = document.getElementById("copyOut");
+      var runBtn = document.getElementById("run");
+      var langSel = document.getElementById("lang");
+
+      var luaKeywords = [
+        "and",
+        "break",
+        "do",
+        "else",
+        "elseif",
+        "end",
+        "false",
+        "for",
+        "function",
+        "if",
+        "in",
+        "local",
+        "nil",
+        "not",
+        "or",
+        "repeat",
+        "return",
+        "then",
+        "true",
+        "until",
+        "while",
+      ];
+
+      function isValidIdent(s) {
+        return (
+          /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) &&
+          indexOfArr(luaKeywords, s) === -1
+        );
+      }
+
+      function indexOfArr(arr, val) {
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i] === val) return i;
+        }
+        return -1;
+      }
+
+      function luaStr(s) {
+        return (
+          "'" +
+          String(s)
+            .replace(/\\/g, "\\\\")
+            .replace(/'/g, "\\'")
+            .replace(/\n/g, "\\n") +
+          "'"
+        );
+      }
+
+      function repeatStr(s, n) {
+        var out = "";
+        for (var i = 0; i < n; i++) out += s;
+        return out;
+      }
+
+      function jsonToLua(val, depth) {
+        depth = depth || 0;
+        var pad = repeatStr("    ", depth);
+        var padIn = repeatStr("    ", depth + 1);
+
+        if (val === null || val === undefined) return "nil";
+        if (typeof val === "boolean") return val ? "true" : "false";
+        if (typeof val === "number") return String(val);
+        if (typeof val === "string") return luaStr(val);
+
+        if (Object.prototype.toString.call(val) === "[object Array]") {
+          if (val.length === 0) return "{}";
+          var items = [];
+          for (var i = 0; i < val.length; i++) {
+            items.push(padIn + jsonToLua(val[i], depth + 1));
+          }
+          return "{\n" + items.join(",\n") + "\n" + pad + "}";
+        }
+
+        if (typeof val === "object") {
+          var keys = [];
+          for (var k in val) {
+            if (val.hasOwnProperty(k)) keys.push(k);
+          }
+          if (keys.length === 0) return "{}";
+          var lines = [];
+          for (var j = 0; j < keys.length; j++) {
+            var key = keys[j];
+            var keyStr = isValidIdent(key) ? key : "[" + luaStr(key) + "]";
+            lines.push(padIn + keyStr + " = " + jsonToLua(val[key], depth + 1));
+          }
+          return "{\n" + lines.join(",\n") + "\n" + pad + "}";
+        }
+
+        return "nil";
+      }
+
+      function parseLua(str) {
+        var pos = 0;
+        var len = str.length;
+
+        function skipWs() {
+          while (pos < len) {
+            var c = str.charAt(pos);
+            if (/\s/.test(c)) {
+              pos++;
+              continue;
+            }
+            if (c === "-" && str.charAt(pos + 1) === "-") {
+              if (str.charAt(pos + 2) === "[" && str.charAt(pos + 3) === "[") {
+                var end = str.indexOf("]]", pos + 4);
+                pos = end === -1 ? len : end + 2;
+              } else {
+                var nl = str.indexOf("\n", pos);
+                pos = nl === -1 ? len : nl;
+              }
+              continue;
+            }
+            break;
+          }
+        }
+
+        function parseString() {
+          var q = str.charAt(pos);
+          pos++;
+          var out = "";
+          while (pos < len && str.charAt(pos) !== q) {
+            if (str.charAt(pos) === "\\") {
+              var n = str.charAt(pos + 1);
+              if (n === "n") out += "\n";
+              else if (n === "t") out += "\t";
+              else out += n;
+              pos += 2;
+            } else {
+              out += str.charAt(pos);
+              pos++;
+            }
+          }
+          pos++;
+          return out;
+        }
+
+        function parseNumber() {
+          var m = /^-?\d+(\.\d+)?([eE][+-]?\d+)?/.exec(str.slice(pos));
+          pos += m[0].length;
+          return Number(m[0]);
+        }
+
+        function parseIdent() {
+          var m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(str.slice(pos));
+          pos += m[0].length;
+          return m[0];
+        }
+
+        function parseTable() {
+          pos++;
+          var arr = [];
+          var obj = {};
+          var isArray = true;
+
+          while (true) {
+            skipWs();
+            if (str.charAt(pos) === "}") {
+              pos++;
+              break;
+            }
+            if (pos >= len) break;
+
+            var key = null;
+
+            if (str.charAt(pos) === "[") {
+              pos++;
+              skipWs();
+              key = parseValue();
+              skipWs();
+              if (str.charAt(pos) === "]") pos++;
+              skipWs();
+              if (str.charAt(pos) === "=") pos++;
+            } else if (/[A-Za-z_]/.test(str.charAt(pos))) {
+              var save = pos;
+              var ident = parseIdent();
+              skipWs();
+              if (
+                str.charAt(pos) === "=" &&
+                indexOfArr(luaKeywords, ident) === -1
+              ) {
+                key = ident;
+                pos++;
+              } else {
+                pos = save;
+              }
+            }
+
+            skipWs();
+            var val = parseValue();
+
+            if (key !== null) {
+              isArray = false;
+              obj[key] = val;
+            } else {
+              arr.push(val);
+            }
+
+            skipWs();
+            if (str.charAt(pos) === "," || str.charAt(pos) === ";") pos++;
+          }
+
+          return isArray ? arr : obj;
+        }
+
+        function parseValue() {
+          skipWs();
+          var c = str.charAt(pos);
+          if (c === "{") return parseTable();
+          if (c === '"' || c === "'") return parseString();
+          if (
+            /[0-9]/.test(c) ||
+            (c === "-" && /[0-9]/.test(str.charAt(pos + 1)))
+          )
+            return parseNumber();
+          if (/[A-Za-z_]/.test(c)) {
+            var w = parseIdent();
+            if (w === "true") return true;
+            if (w === "false") return false;
+            if (w === "nil") return null;
+            return w;
+          }
+          pos++;
+          return null;
+        }
+
+        skipWs();
+        var ret = /^return\s+/.exec(str.slice(pos));
+        if (ret) pos += ret[0].length;
+        skipWs();
+
+        return parseValue();
+      }
+
+      function applyLocale() {
+        var t = LOCALES[lang];
+        btnJL.innerText = t.tabJL;
+        btnLJ.innerText = t.tabLJ;
+        copyIn.innerText = t.copy;
+        copyOut.innerText = t.copy;
+        runBtn.innerText = t.run;
+        inLabel.innerText = dir === "jl" ? t.inJson : t.inLua;
+        outLabel.innerText = dir === "jl" ? t.outLua : t.outJson;
+      }
+
+      function setDir(d) {
+        dir = d;
+        if (d === "jl") {
+          btnJL.className = "active";
+          btnLJ.className = "";
+        } else {
+          btnLJ.className = "active";
+          btnJL.className = "";
+        }
+        errEl.innerText = "";
+        applyLocale();
+      }
+
+      function convert() {
+        errEl.innerText = "";
+        var raw = input.value;
+        try {
+          if (dir === "jl") {
+            var parsed = JSON.parse(raw);
+            output.value = jsonToLua(parsed, 0);
+          } else {
+            var val = parseLua(raw);
+            output.value = JSON.stringify(val, null, 2);
+          }
+        } catch (e) {
+          errEl.innerText = LOCALES[lang].error;
+        }
+      }
+
+      function copyBox(box) {
+        box.focus();
+        box.select();
+        document.execCommand("copy");
+      }
+
+      btnJL.onclick = function () {
+        setDir("jl");
+      };
+      btnLJ.onclick = function () {
+        setDir("lj");
+      };
+      runBtn.onclick = convert;
+      copyIn.onclick = function () {
+        copyBox(input);
+      };
+      copyOut.onclick = function () {
+        copyBox(output);
+      };
+      langSel.onchange = function () {
+        lang = langSel.value;
+        applyLocale();
+      };
+
+      applyLocale();
+      convert();
+    </script>
+  </body>
+</html>
