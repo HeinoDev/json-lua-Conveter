@@ -209,9 +209,14 @@
           outJson: "json out",
           outLua: "lua out",
           copy: "copy",
+          copied: "copied!",
           run: "convert",
-          error:
-            "cant read that - check for a missing comma or bracket somewhere",
+          jsonError: "Invalid JSON",
+          luaError: "Invalid Lua",
+          unexpectedChar: "Unexpected character",
+          unexpectedEnd: "Unexpected end of input",
+          invalidNumber: "Invalid number",
+          missingBracket: "Missing closing bracket",
         },
         da: {
           tabJL: "json -> lua",
@@ -221,9 +226,14 @@
           outJson: "json ud",
           outLua: "lua ud",
           copy: "kopier",
+          copied: "kopieret!",
           run: "konverter",
-          error:
-            "kan ikke læse det - tjek for et manglende komma eller en klamme",
+          jsonError: "Ugyldig JSON",
+          luaError: "Ugyldig Lua",
+          unexpectedChar: "Uventet tegn",
+          unexpectedEnd: "Uventet slutning på input",
+          invalidNumber: "Ugyldigt tal",
+          missingBracket: "Manglende lukkeklamme",
         },
       };
 
@@ -334,6 +344,20 @@
         return "nil";
       }
 
+      function getLineCol(str, pos) {
+        var line = 1;
+        var col = 1;
+        for (var i = 0; i < pos && i < str.length; i++) {
+          if (str.charAt(i) === "\n") {
+            line++;
+            col = 1;
+          } else {
+            col++;
+          }
+        }
+        return { line: line, col: col };
+      }
+
       function parseLua(str) {
         var pos = 0;
         var len = str.length;
@@ -361,6 +385,7 @@
 
         function parseString() {
           var q = str.charAt(pos);
+          var startPos = pos;
           pos++;
           var out = "";
           while (pos < len && str.charAt(pos) !== q) {
@@ -374,6 +399,11 @@
               out += str.charAt(pos);
               pos++;
             }
+          }
+          if (pos >= len) {
+            var err = new Error("Unterminated string");
+            err.pos = startPos;
+            throw err;
           }
           pos++;
           return out;
@@ -392,6 +422,7 @@
         }
 
         function parseTable() {
+          var startPos = pos;
           pos++;
           var arr = [];
           var obj = {};
@@ -403,7 +434,11 @@
               pos++;
               break;
             }
-            if (pos >= len) break;
+            if (pos >= len) {
+              var err = new Error("Missing closing bracket for table");
+              err.pos = startPos;
+              throw err;
+            }
 
             var key = null;
 
@@ -449,6 +484,11 @@
 
         function parseValue() {
           skipWs();
+          if (pos >= len) {
+            var err = new Error("Unexpected end of input");
+            err.pos = pos;
+            throw err;
+          }
           var c = str.charAt(pos);
           if (c === "{") return parseTable();
           if (c === '"' || c === "'") return parseString();
@@ -464,8 +504,9 @@
             if (w === "nil") return null;
             return w;
           }
-          pos++;
-          return null;
+          var err = new Error("Unexpected character '" + c + "'");
+          err.pos = pos;
+          throw err;
         }
 
         skipWs();
@@ -473,7 +514,16 @@
         if (ret) pos += ret[0].length;
         skipWs();
 
-        return parseValue();
+        var result = parseValue();
+        if (pos < len) {
+          skipWs();
+          if (pos < len) {
+            var err = new Error("Extra characters after value");
+            err.pos = pos;
+            throw err;
+          }
+        }
+        return result;
       }
 
       function applyLocale() {
@@ -500,9 +550,16 @@
         applyLocale();
       }
 
+      var convertTimeout;
       function convert() {
         errEl.innerText = "";
-        var raw = input.value;
+        var raw = input.value.trim();
+
+        if (!raw) {
+          output.value = "";
+          return;
+        }
+
         try {
           if (dir === "jl") {
             var parsed = JSON.parse(raw);
@@ -511,24 +568,78 @@
             var val = parseLua(raw);
             output.value = JSON.stringify(val, null, 2);
           }
+          saveState();
         } catch (e) {
-          errEl.innerText = LOCALES[lang].error;
+          var lineCol = getLineCol(raw, e.pos || 0);
+          var errorType = dir === "jl" ? LOCALES[lang].jsonError : LOCALES[lang].luaError;
+          errEl.innerText = errorType + " (Line " + lineCol.line + ", Col " + lineCol.col + "): " + e.message;
         }
       }
 
-      function copyBox(box) {
-        box.focus();
-        box.select();
-        document.execCommand("copy");
+      function autoConvert() {
+        clearTimeout(convertTimeout);
+        convertTimeout = setTimeout(convert, 500);
+      }
+
+      async function copyBox(box) {
+        try {
+          var text = box.value;
+          if (!text) return;
+
+          await navigator.clipboard.writeText(text);
+
+          var btn = box === input ? copyIn : copyOut;
+          var origText = btn.innerText;
+          btn.innerText = LOCALES[lang].copied;
+          setTimeout(function() {
+            btn.innerText = origText;
+          }, 2000);
+        } catch (e) {
+          alert("Failed to copy: " + e.message);
+        }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem("jsonLuaDir", dir);
+          localStorage.setItem("jsonLuaLang", lang);
+          localStorage.setItem("jsonLuaInput", input.value);
+          localStorage.setItem("jsonLuaOutput", output.value);
+        } catch (e) {
+          // localStorage not available
+        }
+      }
+
+      function loadState() {
+        try {
+          var savedDir = localStorage.getItem("jsonLuaDir");
+          var savedLang = localStorage.getItem("jsonLuaLang");
+          var savedInput = localStorage.getItem("jsonLuaInput");
+          var savedOutput = localStorage.getItem("jsonLuaOutput");
+
+          if (savedDir) dir = savedDir;
+          if (savedLang) {
+            lang = savedLang;
+            langSel.value = lang;
+          }
+          if (savedInput) input.value = savedInput;
+          if (savedOutput) output.value = savedOutput;
+        } catch (e) {
+          // localStorage not available
+        }
       }
 
       btnJL.onclick = function () {
         setDir("jl");
+        convert();
       };
       btnLJ.onclick = function () {
         setDir("lj");
+        convert();
       };
       runBtn.onclick = convert;
+      input.onchange = autoConvert;
+      input.oninput = autoConvert;
       copyIn.onclick = function () {
         copyBox(input);
       };
@@ -538,9 +649,19 @@
       langSel.onchange = function () {
         lang = langSel.value;
         applyLocale();
+        saveState();
       };
 
+      document.onkeydown = function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          convert();
+        }
+      };
+
+      loadState();
       applyLocale();
+      setDir(dir);
       convert();
     </script>
   </body>
