@@ -217,6 +217,9 @@
           unexpectedEnd: "Unexpected end of input",
           invalidNumber: "Invalid number",
           missingBracket: "Missing closing bracket",
+          inputTooLarge: "Input too large (max 1MB)",
+          nestingTooDeep: "Nesting too deep (max 100 levels)",
+          invalidEncoding: "Invalid character encoding",
         },
         da: {
           tabJL: "json -> lua",
@@ -234,6 +237,9 @@
           unexpectedEnd: "Uventet slutning på input",
           invalidNumber: "Ugyldigt tal",
           missingBracket: "Manglende lukkeklamme",
+          inputTooLarge: "Input for stor (max 1MB)",
+          nestingTooDeep: "Indlejring for dyb (max 100 niveauer)",
+          invalidEncoding: "Ugyldig tegnkodning",
         },
       };
 
@@ -550,6 +556,47 @@
         applyLocale();
       }
 
+      var MAX_SIZE = 1024 * 1024;
+      var MAX_DEPTH = 100;
+
+      function validateInput(str) {
+        if (!str || str.trim().length === 0) return null;
+
+        if (str.length > MAX_SIZE) {
+          var err = new Error(LOCALES[lang].inputTooLarge);
+          err.validation = true;
+          throw err;
+        }
+
+        try {
+          for (var i = 0; i < str.length; i++) {
+            str.charCodeAt(i);
+          }
+        } catch (e) {
+          var err = new Error(LOCALES[lang].invalidEncoding);
+          err.validation = true;
+          throw err;
+        }
+
+        return str;
+      }
+
+      function checkDepth(val, depth) {
+        if (depth > MAX_DEPTH) {
+          var err = new Error(LOCALES[lang].nestingTooDeep);
+          err.validation = true;
+          throw err;
+        }
+
+        if (typeof val === "object" && val !== null) {
+          for (var k in val) {
+            if (val.hasOwnProperty(k)) {
+              checkDepth(val[k], depth + 1);
+            }
+          }
+        }
+      }
+
       var convertTimeout;
       function convert() {
         errEl.innerText = "";
@@ -561,18 +608,26 @@
         }
 
         try {
+          validateInput(raw);
+
           if (dir === "jl") {
             var parsed = JSON.parse(raw);
+            checkDepth(parsed, 0);
             output.value = jsonToLua(parsed, 0);
           } else {
             var val = parseLua(raw);
+            checkDepth(val, 0);
             output.value = JSON.stringify(val, null, 2);
           }
           saveState();
         } catch (e) {
-          var lineCol = getLineCol(raw, e.pos || 0);
-          var errorType = dir === "jl" ? LOCALES[lang].jsonError : LOCALES[lang].luaError;
-          errEl.innerText = errorType + " (Line " + lineCol.line + ", Col " + lineCol.col + "): " + e.message;
+          if (e.validation) {
+            errEl.innerText = e.message;
+          } else {
+            var lineCol = getLineCol(raw, e.pos || 0);
+            var errorType = dir === "jl" ? LOCALES[lang].jsonError : LOCALES[lang].luaError;
+            errEl.innerText = errorType + " (Line " + lineCol.line + ", Col " + lineCol.col + "): " + e.message;
+          }
         }
       }
 
